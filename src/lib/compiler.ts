@@ -30,6 +30,21 @@ export function generateDeterministicHash(input: string): string {
 }
 
 /**
+ * Canonical deterministic JSON stringifier with sorted keys
+ */
+export function canonicalizeObject(obj: any): string {
+  if (obj === null || typeof obj !== 'object') {
+    return JSON.stringify(obj);
+  }
+  if (Array.isArray(obj)) {
+    return '[' + obj.map(canonicalizeObject).join(',') + ']';
+  }
+  const keys = Object.keys(obj).sort();
+  const pairs = keys.map((k) => `${JSON.stringify(k)}:${canonicalizeObject(obj[k])}`);
+  return '{' + pairs.join(',') + '}';
+}
+
+/**
  * Calculate deterministic shot cache key using all resolved dependencies
  */
 export function calculateShotCacheKey(params: {
@@ -44,18 +59,19 @@ export function calculateShotCacheKey(params: {
   seed: number;
   resolution: string;
 }): string {
-  const serialized = JSON.stringify({
-    cv: params.characterVersion,
-    pos: params.poseId,
-    exp: params.expressionId,
-    loc: params.locationId,
-    dlg: params.dialogue.trim(),
-    vp: params.voiceProfile,
-    prv: params.provider,
-    mdl: params.model,
-    sd: params.seed,
-    res: params.resolution,
-  });
+  const payload = {
+    cv: params.characterVersion || 'v1.0',
+    pos: params.poseId || 'default',
+    exp: params.expressionId || 'default',
+    loc: params.locationId || 'default',
+    dlg: (params.dialogue || '').trim(),
+    vp: params.voiceProfile || 'default',
+    prv: params.provider || 'default',
+    mdl: params.model || 'default',
+    sd: params.seed ?? 0,
+    res: params.resolution || '1080x1920',
+  };
+  const serialized = canonicalizeObject(payload);
   return generateDeterministicHash(serialized);
 }
 

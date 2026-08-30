@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ShieldCheck,
   AlertTriangle,
@@ -25,7 +25,8 @@ interface QAGatesConsoleProps {
 }
 
 export const QAGatesConsole: React.FC<QAGatesConsoleProps> = ({ universe, episodes }) => {
-  const currentEpisode = episodes[0];
+  const [selectedEpId, setSelectedEpId] = useState<string>(episodes[0]?.id || '');
+  const currentEpisode = episodes.find((e) => e.id === selectedEpId) || episodes[0];
   const [identityThreshold, setIdentityThreshold] = useState<number>(0.88);
   const [motionMaxJitter, setMotionMaxJitter] = useState<number>(0.08);
   const [remediatedShots, setRemediatedShots] = useState<Record<string, boolean>>({});
@@ -34,6 +35,55 @@ export const QAGatesConsole: React.FC<QAGatesConsoleProps> = ({ universe, episod
     audioSynthesizer.playStudioChime('qa_pass');
     setRemediatedShots((prev) => ({ ...prev, [shotId]: true }));
   };
+
+  const allShots = currentEpisode?.scenes.flatMap((sc) => sc.shots) || [];
+
+  // Compute live QA results for each shot
+  const shotQAMap: Record<string, { result: ShotQAResult; isRemediated: boolean }> = useMemo(() => {
+    const map: Record<string, { result: ShotQAResult; isRemediated: boolean }> = {};
+    allShots.forEach((shot) => {
+      const char = universe.characters.find((c) => c.id === shot.characterId) || universe.characters[0];
+      const customProfile = {
+        identityThreshold,
+        allowedPoseVariance: 0.12,
+        paletteDriftMax: 0.05,
+        landmarkDriftMax: motionMaxJitter,
+        lufsTarget: -14.0,
+        maxLipSyncDiscrepancyMs: 40,
+      };
+
+      const result = evaluateShotQA({
+        shotId: shot.id,
+        characterName: char?.name || 'Actor',
+        characterVersion: shot.characterVersion || 'v1.0',
+        poseId: shot.poseId,
+        expressionId: shot.expressionId,
+        dialogue: shot.dialogue,
+        motionPreset: shot.motionPreset,
+        duration: shot.duration,
+        customQAProfile: customProfile,
+      });
+
+      const isRemediated = Boolean(remediatedShots[shot.id]);
+      if (isRemediated) {
+        result.motionStatus = 'PASS';
+        result.overallStatus = result.identityStatus === 'WARNING' ? 'WARNING' : 'PASS';
+      }
+
+      map[shot.id] = { result, isRemediated };
+    });
+    return map;
+  }, [allShots, universe.characters, identityThreshold, motionMaxJitter, remediatedShots]);
+
+  const qaItems = Object.values(shotQAMap) as Array<{ result: ShotQAResult; isRemediated: boolean }>;
+  const hasAnyWarnings = qaItems.some((item) => item.result.overallStatus !== 'PASS');
+  const avgIdentity = allShots.length > 0
+    ? (allShots.reduce((acc, s) => acc + (shotQAMap[s.id]?.result.identityScore || 0.94), 0) / allShots.length) * 100
+    : 94.2;
+
+  const motionWarningsCount = qaItems.filter(
+    (item) => item.result.motionStatus !== 'PASS' && !item.isRemediated
+  ).length;
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
@@ -59,10 +109,17 @@ export const QAGatesConsole: React.FC<QAGatesConsoleProps> = ({ universe, episod
         {/* Global QA Overall Status Badge */}
         <div className="flex items-center gap-3 px-4 py-2.5 bg-[#121215] border border-zinc-800 rounded-2xl text-xs font-mono">
           <span className="text-zinc-500">STATUS:</span>
-          <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-            <CheckCircle2 className="w-4 h-4" />
-            <span>READY FOR COMPOSITING</span>
-          </span>
+          {hasAnyWarnings ? (
+            <span className="flex items-center gap-1.5 text-amber-400 font-medium">
+              <AlertTriangle className="w-4 h-4" />
+              <span>{motionWarningsCount} REMEDIATIONS AVAILABLE</span>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+              <CheckCircle2 className="w-4 h-4" />
+              <span>READY FOR COMPOSITING</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -74,7 +131,7 @@ export const QAGatesConsole: React.FC<QAGatesConsoleProps> = ({ universe, episod
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
           </div>
           <div className="text-xl font-light text-emerald-400">PASS</div>
-          <div className="text-[10px] text-zinc-500 mt-0.5">94.2% Face Similarity</div>
+          <div className="text-[10px] text-zinc-500 mt-0.5">{avgIdentity.toFixed(1)}% Face Similarity</div>
         </div>
 
         <div className="p-5 bg-[#121215] border border-zinc-800 rounded-[32px] shadow-sm">
@@ -98,17 +155,17 @@ export const QAGatesConsole: React.FC<QAGatesConsoleProps> = ({ universe, episod
         <div className="p-5 bg-[#121215] border border-zinc-800 rounded-[32px] shadow-sm">
           <div className="flex items-center justify-between mb-1.5 text-zinc-500">
             <span className="text-[10px] uppercase">4. MOTION</span>
-            {remediatedShots['shot_003'] ? (
+            {motionWarningsCount === 0 ? (
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             ) : (
               <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
             )}
           </div>
-          <div className={`text-xl font-light ${remediatedShots['shot_003'] ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {remediatedShots['shot_003'] ? 'PASS' : 'WARNING'}
+          <div className={`text-xl font-light ${motionWarningsCount === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {motionWarningsCount === 0 ? 'PASS' : 'WARNING'}
           </div>
           <div className="text-[10px] text-zinc-500 mt-0.5">
-            {remediatedShots['shot_003'] ? 'Remedy Applied' : 'Landmark Jitter'}
+            {motionWarningsCount === 0 ? 'All Anchors Locked' : `${motionWarningsCount} Landmark Drift`}
           </div>
         </div>
 
@@ -134,9 +191,11 @@ export const QAGatesConsole: React.FC<QAGatesConsoleProps> = ({ universe, episod
         </div>
 
         <div className="space-y-3">
-          {currentEpisode?.scenes.flatMap((sc) => sc.shots).map((shot) => {
-            const isRemediated = remediatedShots[shot.id];
-            const hasWarning = shot.id === 'shot_003' && !isRemediated;
+          {allShots.map((shot) => {
+            const qaData = shotQAMap[shot.id];
+            const isRemediated = qaData?.isRemediated || false;
+            const qaResult = qaData?.result;
+            const hasWarning = qaResult?.overallStatus !== 'PASS';
 
             return (
               <div
@@ -144,6 +203,8 @@ export const QAGatesConsole: React.FC<QAGatesConsoleProps> = ({ universe, episod
                 className={`p-5 rounded-2xl border transition-all ${
                   hasWarning
                     ? 'bg-amber-950/20 border-amber-500/40 text-white'
+                    : isRemediated
+                    ? 'bg-emerald-950/20 border-emerald-500/40 text-white'
                     : 'bg-zinc-800/20 border-zinc-800 text-zinc-300'
                 }`}
               >
@@ -157,10 +218,16 @@ export const QAGatesConsole: React.FC<QAGatesConsoleProps> = ({ universe, episod
                         className={`text-[10px] px-2.5 py-0.5 rounded-full font-medium ${
                           hasWarning
                             ? 'bg-amber-500/20 text-amber-300'
+                            : isRemediated
+                            ? 'bg-emerald-500/20 text-emerald-300'
                             : 'bg-emerald-500/20 text-emerald-400'
                         }`}
                       >
-                        {hasWarning ? 'MOTION WARNING' : 'ALL GATES PASS'}
+                        {hasWarning
+                          ? 'MOTION WARNING'
+                          : isRemediated
+                          ? 'FALLBACK REMEDY ACTIVE'
+                          : 'ALL GATES PASS'}
                       </span>
                     </div>
                     <p className="text-xs text-zinc-300 mt-1 italic">
@@ -183,10 +250,10 @@ export const QAGatesConsole: React.FC<QAGatesConsoleProps> = ({ universe, episod
                   <div className="mt-3 p-3.5 bg-zinc-800/40 border border-amber-500/30 rounded-2xl text-xs font-mono text-amber-200/90 space-y-1">
                     <div className="font-semibold">⚠️ Diagnostic Report:</div>
                     <div className="text-zinc-300 text-[11px]">
-                      Facial landmark drift detected in Frames 78–92 (jawline tremor index 0.094 &gt; threshold 0.080).
+                      {qaResult?.driftFrames || 'Landmark tremor exceeds profile threshold.'}
                     </div>
                     <div className="text-emerald-400 text-[11px]">
-                      Recommended Action: Apply subtle landmark smoothing or gracefully degrade to Ken Burns static camera pan.
+                      Recommended Action: {qaResult?.remedyAction || 'Apply subtle anchor smoothing or execute Graceful Degradation.'}
                     </div>
                   </div>
                 )}

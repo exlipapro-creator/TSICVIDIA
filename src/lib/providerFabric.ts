@@ -6,7 +6,7 @@
  * and cost/latency estimation.
  */
 
-import { ProviderAdapter, ProviderType } from '../types';
+import { ExecutionPolicy, ProviderAdapter, ProviderType } from '../types';
 import { PROVIDER_REGISTRY } from './mockData';
 
 export interface CapabilityRequirement {
@@ -45,9 +45,12 @@ export class ProviderFabric {
   }
 
   /**
-   * Capability Negotiation: Determines optimal provider based on declarative requirements
+   * Capability Negotiation: Determines optimal provider based on declarative requirements and execution policy
    */
-  public negotiate(requirement: CapabilityRequirement): ProviderNegotiationResult {
+  public negotiate(
+    requirement: CapabilityRequirement,
+    policy: ExecutionPolicy = 'balanced'
+  ): ProviderNegotiationResult {
     let candidateType: ProviderType = 'visual';
 
     switch (requirement.capability) {
@@ -86,9 +89,9 @@ export class ProviderFabric {
       };
     }
 
-    // Score candidates based on requirements
+    // Score candidates based on requirements & policy
     let bestCandidate = available[0];
-    let bestScore = -1;
+    let bestScore = -999;
 
     for (const prov of available) {
       let score = 10;
@@ -111,6 +114,26 @@ export class ProviderFabric {
         matched.push('supportsVisemes');
       }
 
+      // Policy adjustments
+      if (policy === 'quality_first') {
+        if (prov.capabilities.maxResolution.includes('4K') || prov.capabilities.maxResolution.includes('1080')) {
+          score += 6;
+        }
+        if (prov.capabilities.supportsReferenceImages && prov.capabilities.supportsCharacterLora) {
+          score += 4;
+        }
+      } else if (policy === 'speed_first') {
+        const latencySec = prov.capabilities.estimatedLatencyMs / 1000;
+        score += Math.max(0, 15 - latencySec * 2);
+      } else if (policy === 'budget_first') {
+        const costCents = prov.capabilities.estimatedCostPerUnit * 100;
+        score += Math.max(0, 15 - costCents * 3);
+      } else {
+        // Balanced
+        if (prov.capabilities.estimatedLatencyMs < 4000) score += 2;
+        if (prov.capabilities.estimatedCostPerUnit < 0.05) score += 2;
+      }
+
       if (score > bestScore) {
         bestScore = score;
         bestCandidate = prov;
@@ -129,22 +152,27 @@ export class ProviderFabric {
       ].filter(Boolean),
       estimatedCost: bestCandidate.capabilities.estimatedCostPerUnit,
       estimatedLatencyMs: bestCandidate.capabilities.estimatedLatencyMs,
-      reasoning: `Selected ${bestCandidate.name} matching capability "${requirement.capability}".`,
+      reasoning: `Selected ${bestCandidate.name} matching capability "${requirement.capability}" under ${policy} policy.`,
     };
   }
 
   /**
    * Execute capability with automated failover
    */
-  public async execute(requirement: CapabilityRequirement, payload: any): Promise<any> {
-    const negotiation = this.negotiate(requirement);
+  public async execute(
+    requirement: CapabilityRequirement,
+    payload: any,
+    policy: ExecutionPolicy = 'balanced'
+  ): Promise<any> {
+    const negotiation = this.negotiate(requirement, policy);
     
-    // Deterministic simulation / production execution
+    // Deterministic execution representation
     return {
       providerId: negotiation.selectedProvider.id,
       modelUsed: negotiation.selectedProvider.selectedModel,
       cost: negotiation.estimatedCost,
       status: 'SUCCESS',
+      policyApplied: policy,
       payloadOutput: { ...payload, processedAt: new Date().toISOString() },
     };
   }

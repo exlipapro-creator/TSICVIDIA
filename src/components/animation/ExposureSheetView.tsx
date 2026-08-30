@@ -52,7 +52,7 @@ export const ExposureSheetView: React.FC<ExposureSheetViewProps> = ({
   };
 
   const character = universe.characters.find((c) => c.id === currentShot.characterId) || universe.characters[0];
-  const charVersion = character.versions.find((v) => v.version === currentShot.characterVersion) || character.versions[0];
+  const charVersion = character?.versions?.find((v) => v.version === currentShot.characterVersion) || character?.versions?.[0];
 
   // Timing state
   const fps = 24;

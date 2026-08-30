@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Crosshair,
   User,
@@ -13,9 +13,14 @@ import {
   Eye,
   Zap,
   Play,
+  AlertCircle,
+  Clock,
+  ShieldCheck,
+  Film,
 } from 'lucide-react';
 import { Character, Episode, Shot, Universe } from '../../types';
 import { audioSynthesizer } from '../../lib/audioSynthesizer';
+import { analyzeShotDelta, getShotArtifactBreakdown } from '../../lib/invalidationEngine';
 
 interface ShotDesignerViewProps {
   universe: Universe;
@@ -48,26 +53,32 @@ export const ShotDesignerView: React.FC<ShotDesignerViewProps> = ({
   );
 
   const character = universe.characters.find((c) => c.id === characterId) || universe.characters[0];
-  const activeVersion = character.versions.find((v) => v.version === character.currentVersion) || character.versions[0];
+  const activeVersion = character?.versions?.find((v) => v.version === character.currentVersion) || character?.versions?.[0];
+  const activeVersionString = activeVersion?.version || 'v1.0';
+
+  // Compute live tentative shot & invalidation delta
+  const draftShot: Shot = useMemo(() => ({
+    ...currentShot,
+    characterId,
+    characterVersion: activeVersionString,
+    poseId,
+    expressionId,
+    camera,
+    action,
+    motionPreset,
+    dialogue,
+    duration,
+    seed,
+    fallbackStrategy,
+  }), [currentShot, characterId, activeVersionString, poseId, expressionId, camera, action, motionPreset, dialogue, duration, seed, fallbackStrategy]);
+
+  const invalidation = useMemo(() => analyzeShotDelta(currentShot, draftShot), [currentShot, draftShot]);
+  const breakdown = useMemo(() => getShotArtifactBreakdown(draftShot, invalidation), [draftShot, invalidation]);
 
   const handleSave = () => {
     if (!currentShot) return;
-    audioSynthesizer.playStudioChime('click');
-    const updated: Shot = {
-      ...currentShot,
-      characterId,
-      characterVersion: activeVersion.version,
-      poseId,
-      expressionId,
-      camera,
-      action,
-      motionPreset,
-      dialogue,
-      duration,
-      seed,
-      fallbackStrategy,
-    };
-    onUpdateShot?.(updated);
+    audioSynthesizer.playStudioChime('shot_click');
+    onUpdateShot?.(draftShot);
   };
 
   return (
@@ -172,6 +183,93 @@ export const ShotDesignerView: React.FC<ShotDesignerViewProps> = ({
 
         {/* Right: Parameter Binding Form */}
         <div className="col-span-7 bg-[#121215] overflow-y-auto p-6 space-y-6">
+          {/* Live Dependency Invalidation Impact Monitor */}
+          <div className="p-4 bg-zinc-900/90 border border-zinc-800 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider font-mono flex items-center gap-2">
+                <Activity className="w-3.5 h-3.5 text-indigo-400" />
+                Dependency Invalidation Impact
+              </span>
+              <span
+                className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded-full border ${
+                  invalidation.isStale
+                    ? 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                    : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                }`}
+              >
+                {invalidation.isStale ? '● Recompilation Required' : '✓ All Artifacts Valid'}
+              </span>
+            </div>
+
+            <p className="text-xs text-zinc-400 leading-relaxed font-mono">
+              {invalidation.summaryMessage}
+            </p>
+
+            {/* Granular Artifact Layer Breakdown */}
+            <div className="grid grid-cols-5 gap-2 pt-1 text-[11px] font-mono">
+              <div
+                className={`p-2 rounded-xl border flex flex-col items-center justify-center text-center ${
+                  breakdown.characterVisual.status === 'VALID'
+                    ? 'bg-zinc-950 border-emerald-500/30 text-emerald-300'
+                    : breakdown.characterVisual.status === 'CACHED'
+                    ? 'bg-zinc-950 border-blue-500/30 text-blue-300'
+                    : 'bg-zinc-950 border-amber-500/40 text-amber-300'
+                }`}
+              >
+                <span className="text-[9px] text-zinc-500 uppercase">Visual</span>
+                <span className="font-bold text-[10px]">{breakdown.characterVisual.status}</span>
+              </div>
+
+              <div
+                className={`p-2 rounded-xl border flex flex-col items-center justify-center text-center ${
+                  breakdown.voiceAudio.status === 'VALID'
+                    ? 'bg-zinc-950 border-emerald-500/30 text-emerald-300'
+                    : breakdown.voiceAudio.status === 'CACHED'
+                    ? 'bg-zinc-950 border-blue-500/30 text-blue-300'
+                    : 'bg-zinc-950 border-amber-500/40 text-amber-300'
+                }`}
+              >
+                <span className="text-[9px] text-zinc-500 uppercase">Audio</span>
+                <span className="font-bold text-[10px]">{breakdown.voiceAudio.status}</span>
+              </div>
+
+              <div
+                className={`p-2 rounded-xl border flex flex-col items-center justify-center text-center ${
+                  breakdown.motionSynthesis.status === 'VALID'
+                    ? 'bg-zinc-950 border-emerald-500/30 text-emerald-300'
+                    : breakdown.motionSynthesis.status === 'CACHED'
+                    ? 'bg-zinc-950 border-blue-500/30 text-blue-300'
+                    : 'bg-zinc-950 border-amber-500/40 text-amber-300'
+                }`}
+              >
+                <span className="text-[9px] text-zinc-500 uppercase">Motion</span>
+                <span className="font-bold text-[10px]">{breakdown.motionSynthesis.status}</span>
+              </div>
+
+              <div
+                className={`p-2 rounded-xl border flex flex-col items-center justify-center text-center ${
+                  breakdown.qualityGate.status === 'VALID'
+                    ? 'bg-zinc-950 border-emerald-500/30 text-emerald-300'
+                    : 'bg-zinc-950 border-amber-500/40 text-amber-300'
+                }`}
+              >
+                <span className="text-[9px] text-zinc-500 uppercase">QA Gate</span>
+                <span className="font-bold text-[10px]">{breakdown.qualityGate.status}</span>
+              </div>
+
+              <div
+                className={`p-2 rounded-xl border flex flex-col items-center justify-center text-center ${
+                  breakdown.compositorTrack.status === 'VALID'
+                    ? 'bg-zinc-950 border-emerald-500/30 text-emerald-300'
+                    : 'bg-zinc-950 border-amber-500/40 text-amber-300'
+                }`}
+              >
+                <span className="text-[9px] text-zinc-500 uppercase">Composite</span>
+                <span className="font-bold text-[10px]">{breakdown.compositorTrack.status}</span>
+              </div>
+            </div>
+          </div>
+
           {/* Character & Version Binding */}
           <div className="p-4 bg-zinc-900/60 border border-zinc-800 rounded-2xl space-y-3">
             <div className="flex items-center justify-between">

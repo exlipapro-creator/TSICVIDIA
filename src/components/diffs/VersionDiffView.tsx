@@ -19,8 +19,8 @@ export const VersionDiffView: React.FC<VersionDiffViewProps> = ({ universe }) =>
   const [v1Name, setV1Name] = useState<string>('v3.1');
   const [v2Name, setV2Name] = useState<string>('v3.2');
 
-  const v1 = selectedChar?.versions.find((v) => v.version === v1Name) || selectedChar?.versions[1];
-  const v2 = selectedChar?.versions.find((v) => v.version === v2Name) || selectedChar?.versions[0];
+  const v1 = selectedChar?.versions.find((v) => v.version === v1Name) || selectedChar?.versions[1] || selectedChar?.versions[0];
+  const v2 = selectedChar?.versions.find((v) => v.version === v2Name) || selectedChar?.versions[0] || selectedChar?.versions[1];
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
@@ -79,7 +79,7 @@ export const VersionDiffView: React.FC<VersionDiffViewProps> = ({ universe }) =>
             <div className="p-4 bg-zinc-800/20 rounded-2xl border border-zinc-800 space-y-1">
               <span className="text-zinc-500 text-[10px]">VOICE STABILITY:</span>
               <div className="text-zinc-200 font-semibold">
-                {v1 ? (v1.voiceProfile.stability * 100).toFixed(0) : 0}%
+                {v1?.voiceProfile?.stability !== undefined ? (v1.voiceProfile.stability * 100).toFixed(0) : 0}%
               </div>
             </div>
 
@@ -117,7 +117,7 @@ export const VersionDiffView: React.FC<VersionDiffViewProps> = ({ universe }) =>
             <div className="p-4 bg-zinc-800/20 rounded-2xl border border-emerald-500/30 space-y-1">
               <span className="text-zinc-500 text-[10px]">VOICE STABILITY (INCREASED):</span>
               <div className="text-emerald-400 font-semibold">
-                {v2 ? (v2.voiceProfile.stability * 100).toFixed(0) : 0}% (+6%)
+                {v2?.voiceProfile?.stability !== undefined ? (v2.voiceProfile.stability * 100).toFixed(0) : 0}% (+6%)
               </div>
             </div>
 

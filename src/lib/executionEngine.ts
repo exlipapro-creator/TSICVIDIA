@@ -8,7 +8,6 @@ import {
   ProductionDAGNode,
   ProductionJob,
   ProductionManifest,
-  ShotQAResult,
 } from '../types';
 
 export class ExecutionEngine {
@@ -16,9 +15,18 @@ export class ExecutionEngine {
   private isRunning: boolean = false;
   private cancelRequested: boolean = false;
 
+  public getCurrentJob(): ProductionJob | null {
+    return this.currentJob;
+  }
+
+  public getIsRunning(): boolean {
+    return this.isRunning;
+  }
+
   public async executeManifest(
     manifest: ProductionManifest,
-    onProgressUpdate: (job: ProductionJob, updatedNode?: ProductionDAGNode) => void
+    onProgressUpdate: (job: ProductionJob, updatedNode?: ProductionDAGNode) => void,
+    options?: { failNodeId?: string; simulatedLatencyFactor?: number }
   ): Promise<ProductionJob> {
     this.isRunning = true;
     this.cancelRequested = false;
@@ -49,12 +57,23 @@ export class ExecutionEngine {
     onProgressUpdate(job);
 
     const graph = [...manifest.executionGraph];
-    let completedCount = 0;
 
-    // Process nodes sequentially or topologically
+    // Mark all initial nodes as QUEUED
+    for (const node of graph) {
+      node.status = 'QUEUED';
+    }
+
+    const latencyFactor = options?.simulatedLatencyFactor ?? 1;
+
     for (let i = 0; i < graph.length; i++) {
       if (this.cancelRequested) {
         job.status = 'FAILED';
+        for (let j = i; j < graph.length; j++) {
+          if (graph[j].status === 'QUEUED' || graph[j].status === 'RUNNING') {
+            graph[j].status = 'FAILED';
+            graph[j].errorMessage = 'Execution cancelled by user.';
+          }
+        }
         onProgressUpdate(job);
         break;
       }
@@ -64,7 +83,18 @@ export class ExecutionEngine {
       job.progressPercent = Math.min(95, Math.round(((i + 1) / graph.length) * 90) + 5);
       onProgressUpdate(job, node);
 
-      // Simulate realistic execution timing & caching
+      // Check simulated failure option
+      if (options?.failNodeId && node.id === options.failNodeId) {
+        node.status = 'FAILED';
+        node.errorMessage = `Simulated provider error on node ${node.id}`;
+        job.status = 'FAILED';
+        job.qaSummary.failCount++;
+        onProgressUpdate(job, node);
+        this.isRunning = false;
+        return job;
+      }
+
+      // Determine deterministic cache hit vs generation
       const isCacheHit = i % 3 === 0 || node.type === 'character_lock';
       if (isCacheHit) {
         job.cacheHits++;
@@ -73,7 +103,7 @@ export class ExecutionEngine {
         job.actualCost += node.cost || 0.01;
       }
 
-      const executionDelayMs = isCacheHit ? 180 : 350;
+      const executionDelayMs = Math.max(10, Math.round((isCacheHit ? 120 : 250) * latencyFactor));
       await new Promise((r) => setTimeout(r, executionDelayMs));
 
       node.status = 'COMPLETED';
@@ -82,7 +112,6 @@ export class ExecutionEngine {
 
       if (node.type === 'composite_shot') {
         job.completedShots++;
-        completedCount++;
       }
 
       if (node.type === 'qa_check') {
@@ -92,7 +121,7 @@ export class ExecutionEngine {
       onProgressUpdate(job, node);
     }
 
-    if (!this.cancelRequested) {
+    if (!this.cancelRequested && job.status !== 'FAILED') {
       job.status = 'COMPLETED';
       job.progressPercent = 100;
       job.completedAt = new Date().toISOString();
@@ -105,6 +134,27 @@ export class ExecutionEngine {
     return job;
   }
 
+  /**
+   * Retry a specific failed node
+   */
+  public async retryNode(
+    node: ProductionDAGNode,
+    onProgressUpdate: (updatedNode: ProductionDAGNode) => void
+  ): Promise<ProductionDAGNode> {
+    node.status = 'RETRYING';
+    onProgressUpdate(node);
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    node.status = 'COMPLETED';
+    node.errorMessage = undefined;
+    node.durationMs = 200;
+    node.cacheHit = false;
+    onProgressUpdate(node);
+
+    return node;
+  }
+
   public cancel() {
     this.cancelRequested = true;
     this.isRunning = false;
@@ -112,3 +162,4 @@ export class ExecutionEngine {
 }
 
 export const executionEngine = new ExecutionEngine();
+

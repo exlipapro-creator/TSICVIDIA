@@ -19,8 +19,8 @@ export const DiffModal: React.FC<DiffModalProps> = ({
 }) => {
   if (!isOpen || !character) return null;
 
-  const v1 = character.versions.find((v) => v.version === v1Version) || character.versions[1];
-  const v2 = character.versions.find((v) => v.version === v2Version) || character.versions[0];
+  const v1 = character.versions.find((v) => v.version === v1Version) || character.versions[1] || character.versions[0];
+  const v2 = character.versions.find((v) => v.version === v2Version) || character.versions[0] || character.versions[1];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -71,7 +71,7 @@ export const DiffModal: React.FC<DiffModalProps> = ({
                 <div className="p-3 bg-[#0B0E13] rounded-xl border border-[#1C222E]">
                   <span className="text-slate-400 text-[10px]">VOICE STABILITY:</span>
                   <div className="text-slate-200 mt-0.5">
-                    {v1 ? (v1.voiceProfile.stability * 100).toFixed(0) : 0}%
+                    {v1?.voiceProfile?.stability !== undefined ? (v1.voiceProfile.stability * 100).toFixed(0) : 0}%
                   </div>
                 </div>
               </div>
@@ -98,7 +98,7 @@ export const DiffModal: React.FC<DiffModalProps> = ({
                 <div className="p-3 bg-[#0B0E13] rounded-xl border border-emerald-500/30">
                   <span className="text-slate-400 text-[10px]">VOICE STABILITY (BOOSTED):</span>
                   <div className="text-emerald-300 mt-0.5">
-                    {v2 ? (v2.voiceProfile.stability * 100).toFixed(0) : 0}%
+                    {v2?.voiceProfile?.stability !== undefined ? (v2.voiceProfile.stability * 100).toFixed(0) : 0}%
                   </div>
                 </div>
               </div>

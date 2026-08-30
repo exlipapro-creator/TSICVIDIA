@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header } from './components/layout/Header';
 import { Sidebar, NavView } from './components/layout/Sidebar';
 import { DashboardView } from './components/dashboard/DashboardView';
@@ -16,22 +16,55 @@ import { ExposureSheetView } from './components/animation/ExposureSheetView';
 import { DiffModal } from './components/modals/DiffModal';
 import { ReproducibilityReportModal } from './components/modals/ReproducibilityReportModal';
 import { AIAssistantDrawer } from './components/modals/AIAssistantDrawer';
+import { CommandPaletteModal } from './components/modals/CommandPaletteModal';
 import { CANONICAL_UNIVERSE, INITIAL_EPISODES } from './lib/mockData';
 import { Character, Episode, ProductionJob, ProductionManifest, ProductionRecipe, Shot, Universe } from './types';
 import { compileEpisodeToManifest } from './lib/compiler';
 import { executionEngine } from './lib/executionEngine';
 import { audioSynthesizer } from './lib/audioSynthesizer';
+import { persistenceManager } from './lib/storage/persistence';
 
 export default function App() {
-  const [universe, setUniverse] = useState<Universe>(CANONICAL_UNIVERSE);
-  const [episodes, setEpisodes] = useState<Episode[]>(INITIAL_EPISODES);
-  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string>(INITIAL_EPISODES[0]?.id || 'ep_gym_ego');
+  // Restore persisted state if available
+  const persisted = persistenceManager.loadState();
+
+  const [universe, setUniverse] = useState<Universe>(persisted?.universe || CANONICAL_UNIVERSE);
+  const [episodes, setEpisodes] = useState<Episode[]>(persisted?.episodes || INITIAL_EPISODES);
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string>(
+    persisted?.selectedEpisodeId || INITIAL_EPISODES[0]?.id || 'ep_gym_ego'
+  );
   const [activeView, setActiveView] = useState<NavView>('dashboard');
 
   // Active Manifest & Job State
-  const initialManifest = compileEpisodeToManifest(INITIAL_EPISODES[0], CANONICAL_UNIVERSE);
+  const initialManifest =
+    persisted?.manifest || compileEpisodeToManifest(INITIAL_EPISODES[0], CANONICAL_UNIVERSE);
   const [manifest, setManifest] = useState<ProductionManifest | null>(initialManifest);
   const [activeJob, setActiveJob] = useState<ProductionJob | null>(null);
+
+  // Command palette state
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
+
+  // Synchronize state with persistence layer
+  useEffect(() => {
+    persistenceManager.saveStateDebounced({
+      universe,
+      episodes,
+      selectedEpisodeId,
+      manifest,
+    });
+  }, [universe, episodes, selectedEpisodeId, manifest]);
+
+  // Global Cmd+K / Ctrl+K keyboard listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Modals state
   const [diffModalData, setDiffModalData] = useState<{
@@ -166,7 +199,7 @@ export default function App() {
           onSelectEpisode={setSelectedEpisodeId}
           onSelectView={setActiveView}
           onQuickCompile={() => handleCompileEpisode(selectedEpisode)}
-          onOpenSearch={() => setActiveView('assets')}
+          onOpenSearch={() => setCommandPaletteOpen(true)}
           onOpenAIAssistant={() =>
             setAiDrawerData({
               isOpen: true,
@@ -278,6 +311,24 @@ export default function App() {
       </div>
 
       {/* Modals & Drawers */}
+      <CommandPaletteModal
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        universe={universe}
+        episodes={episodes}
+        selectedEpisodeId={selectedEpisodeId}
+        onSelectEpisode={setSelectedEpisodeId}
+        onSelectView={setActiveView}
+        onQuickCompile={() => handleCompileEpisode(selectedEpisode)}
+        onOpenAIAssistant={() =>
+          setAiDrawerData({
+            isOpen: true,
+            prompt: `Refine episode "${selectedEpisode?.title || 'Episode'}"`,
+            type: 'script_generation',
+          })
+        }
+      />
+
       <DiffModal
         isOpen={diffModalData.isOpen}
         character={diffModalData.character}

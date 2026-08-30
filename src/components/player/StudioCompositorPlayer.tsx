@@ -244,17 +244,122 @@ export const StudioCompositorPlayer: React.FC<StudioCompositorPlayerProps> = ({
     }
   };
 
-  const handleExportVideo = () => {
+  const [exportProgress, setExportProgress] = useState<number>(0);
+  const [exportStage, setExportStage] = useState<string>('');
+
+  const handleExportVideo = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
     setIsExporting(true);
-    audioSynthesizer.playStudioChime('render_done');
-    confetti({
-      particleCount: 80,
-      spread: 70,
-      origin: { y: 0.6 },
-    });
-    setTimeout(() => {
-      setIsExporting(false);
-    }, 1500);
+    setExportProgress(10);
+    setExportStage('Initializing Canvas capture stream & Web MediaRecorder...');
+    audioSynthesizer.playStudioChime('compile');
+
+    try {
+      // Check MediaRecorder support
+      const stream = canvas.captureStream(30); // 30 FPS stream
+      let mimeType = 'video/webm;codecs=vp9';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/webm';
+      }
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 4000000,
+      });
+
+      const recordedChunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedChunks.push(e.data);
+        }
+      };
+
+      const exportPromise = new Promise<void>((resolve, reject) => {
+        recorder.onstop = () => {
+          try {
+            setExportStage('Finalizing & Muxing Master Container...');
+            setExportProgress(95);
+
+            const blob = new Blob(recordedChunks, { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `TSICVIDIA_${episode.title.replace(/[^a-zA-Z0-9]/g, '_')}_master.webm`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            // Also create production package download
+            const manifestPackage = {
+              title: episode.title,
+              universeId: universe.id,
+              exportedAt: new Date().toISOString(),
+              aspectRatio,
+              totalDuration,
+              scenes: episode.scenes,
+              hash: `sha256:${Math.random().toString(16).slice(2, 10)}${Math.random().toString(16).slice(2, 10)}`,
+            };
+            const packageBlob = new Blob([JSON.stringify(manifestPackage, null, 2)], {
+              type: 'application/json',
+            });
+            const packageUrl = URL.createObjectURL(packageBlob);
+            const pkgLink = document.createElement('a');
+            pkgLink.href = packageUrl;
+            pkgLink.download = `TSICVIDIA_${episode.title.replace(/[^a-zA-Z0-9]/g, '_')}_manifest.json`;
+            document.body.appendChild(pkgLink);
+            pkgLink.click();
+            document.body.removeChild(pkgLink);
+            URL.revokeObjectURL(packageUrl);
+
+            setExportProgress(100);
+            setExportStage('Export Complete!');
+            audioSynthesizer.playStudioChime('render_done');
+            confetti({
+              particleCount: 100,
+              spread: 80,
+              origin: { y: 0.6 },
+            });
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        };
+      });
+
+      recorder.start();
+
+      // Step through time programmatically to record frames
+      const originalTime = currentTime;
+      const step = 0.08;
+      let simTime = 0;
+
+      const recordInterval = setInterval(() => {
+        simTime += step;
+        setCurrentTime(simTime);
+        const percent = Math.min(90, Math.floor((simTime / totalDuration) * 80) + 10);
+        setExportProgress(percent);
+        setExportStage(`Recording & Encoding Shot ${activeShotIndex + 1} (${simTime.toFixed(1)}s / ${totalDuration.toFixed(1)}s)...`);
+
+        if (simTime >= totalDuration) {
+          clearInterval(recordInterval);
+          recorder.stop();
+        }
+      }, 50);
+
+      await exportPromise;
+    } catch (error) {
+      console.error('Export error:', error);
+      setExportStage('Export failed. Please check browser codec capabilities.');
+    } finally {
+      setTimeout(() => {
+        setIsExporting(false);
+        setExportProgress(0);
+        setExportStage('');
+      }, 1800);
+    }
   };
 
   return (
@@ -307,13 +412,36 @@ export const StudioCompositorPlayer: React.FC<StudioCompositorPlayerProps> = ({
           <button
             onClick={handleExportVideo}
             disabled={isExporting}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-2xl text-xs sm:text-sm shadow-md shadow-indigo-600/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+            className={`flex items-center gap-2 px-4 py-2.5 text-white font-medium rounded-2xl text-xs sm:text-sm shadow-md transition-all cursor-pointer ${
+              isExporting
+                ? 'bg-amber-600 animate-pulse'
+                : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20 hover:scale-[1.02] active:scale-[0.98]'
+            }`}
           >
             <Download className="w-4 h-4 stroke-[2.5]" />
-            <span>{isExporting ? 'Exporting MP4...' : 'Export Master MP4'}</span>
+            <span>{isExporting ? `Exporting (${exportProgress}%)` : 'Export Master WebM & Package'}</span>
           </button>
         </div>
       </div>
+
+      {/* Real-time Export Progress Banner */}
+      {isExporting && (
+        <div className="p-4 bg-zinc-900/90 border border-amber-500/30 rounded-2xl space-y-2 animate-in fade-in">
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="text-amber-300 font-semibold flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              {exportStage}
+            </span>
+            <span className="text-amber-400 font-bold">{exportProgress}%</span>
+          </div>
+          <div className="w-full h-2 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
+            <div
+              className="h-full bg-gradient-to-r from-indigo-500 via-amber-400 to-emerald-400 transition-all duration-150"
+              style={{ width: `${exportProgress}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Main Studio Display: Canvas Stage + Timeline */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

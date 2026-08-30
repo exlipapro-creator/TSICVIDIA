@@ -246,17 +246,29 @@ export const ProductionConsole: React.FC<ProductionConsoleProps> = ({
                         )}
                         <span
                           className={`text-[10px] px-2.5 py-0.5 rounded-full font-medium ${
-                            isCompleted
+                            node.status === 'COMPLETED' || (!activeJob && node.status !== 'FAILED')
                               ? 'bg-emerald-500/20 text-emerald-400'
-                              : isRunning
+                              : node.status === 'RUNNING'
                               ? 'bg-amber-500/20 text-amber-300 animate-pulse'
+                              : node.status === 'RETRYING'
+                              ? 'bg-cyan-500/20 text-cyan-300 animate-pulse'
+                              : node.status === 'FAILED'
+                              ? 'bg-rose-500/20 text-rose-300'
                               : 'bg-zinc-800 text-zinc-400'
                           }`}
                         >
-                          {isCompleted ? 'COMPLETED' : isRunning ? 'RUNNING' : 'QUEUED'}
+                          {node.status === 'COMPLETED' || (!activeJob && node.status !== 'FAILED')
+                            ? 'COMPLETED'
+                            : node.status}
                         </span>
                       </div>
                     </div>
+
+                    {node.errorMessage && (
+                      <div className="text-[10px] text-rose-400 mt-1 pl-7 font-mono">
+                        Error: {node.errorMessage}
+                      </div>
+                    )}
 
                     {node.cacheKey && (
                       <div className="text-[10px] text-zinc-500 mt-1 truncate pl-7">
@@ -281,6 +293,18 @@ export const ProductionConsole: React.FC<ProductionConsoleProps> = ({
                 <span className="text-zinc-500 text-[10px]">NODE ID:</span>
                 <div className="text-white font-medium">{selectedNode.id}</div>
               </div>
+
+              <div>
+                <span className="text-zinc-500 text-[10px]">STATUS:</span>
+                <div className="text-zinc-200 font-semibold">{selectedNode.status}</div>
+              </div>
+
+              {selectedNode.errorMessage && (
+                <div>
+                  <span className="text-rose-400 text-[10px]">FAILURE REASON:</span>
+                  <div className="text-rose-300 text-[11px]">{selectedNode.errorMessage}</div>
+                </div>
+              )}
 
               <div>
                 <span className="text-zinc-500 text-[10px]">DEPENDENCIES:</span>
