@@ -1,0 +1,6 @@
+{
+  "name": "TSICVIDIA",
+  "description": "Deterministic Creative Compilation Engine for character-driven, repeatable video productions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
