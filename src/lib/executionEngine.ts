@@ -13,6 +13,7 @@ import {
 export class ExecutionEngine {
   private currentJob: ProductionJob | null = null;
   private isRunning: boolean = false;
+  private isPaused: boolean = false;
   private cancelRequested: boolean = false;
 
   public getCurrentJob(): ProductionJob | null {
@@ -23,12 +24,29 @@ export class ExecutionEngine {
     return this.isRunning;
   }
 
+  public getIsPaused(): boolean {
+    return this.isPaused;
+  }
+
+  public pause(): void {
+    if (this.isRunning && !this.isPaused) {
+      this.isPaused = true;
+    }
+  }
+
+  public resume(): void {
+    if (this.isPaused) {
+      this.isPaused = false;
+    }
+  }
+
   public async executeManifest(
     manifest: ProductionManifest,
     onProgressUpdate: (job: ProductionJob, updatedNode?: ProductionDAGNode) => void,
     options?: { failNodeId?: string; simulatedLatencyFactor?: number }
   ): Promise<ProductionJob> {
     this.isRunning = true;
+    this.isPaused = false;
     this.cancelRequested = false;
 
     const totalShots = manifest.shots.length;
@@ -66,6 +84,11 @@ export class ExecutionEngine {
     const latencyFactor = options?.simulatedLatencyFactor ?? 1;
 
     for (let i = 0; i < graph.length; i++) {
+      // Pause polling loop
+      while (this.isPaused && !this.cancelRequested) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
       if (this.cancelRequested) {
         job.status = 'FAILED';
         for (let j = i; j < graph.length; j++) {
@@ -103,7 +126,7 @@ export class ExecutionEngine {
         job.actualCost += node.cost || 0.01;
       }
 
-      const executionDelayMs = Math.max(10, Math.round((isCacheHit ? 120 : 250) * latencyFactor));
+      const executionDelayMs = Math.max(10, Math.round((isCacheHit ? 80 : 200) * latencyFactor));
       await new Promise((r) => setTimeout(r, executionDelayMs));
 
       node.status = 'COMPLETED';
@@ -131,6 +154,7 @@ export class ExecutionEngine {
     }
 
     this.isRunning = false;
+    this.isPaused = false;
     return job;
   }
 
@@ -155,9 +179,42 @@ export class ExecutionEngine {
     return node;
   }
 
+  /**
+   * Retry all failed nodes across the graph
+   */
+  public async retryFailedNodes(
+    manifest: ProductionManifest,
+    onProgressUpdate: (job: ProductionJob, updatedNode?: ProductionDAGNode) => void
+  ): Promise<ProductionJob> {
+    const failedNodes = manifest.executionGraph.filter((n) => n.status === 'FAILED');
+    if (this.currentJob) {
+      this.currentJob.status = 'RUNNING';
+      onProgressUpdate(this.currentJob);
+    }
+
+    for (const node of failedNodes) {
+      await this.retryNode(node, (updated) => {
+        if (this.currentJob) {
+          onProgressUpdate(this.currentJob, updated);
+        }
+      });
+    }
+
+    const allCompleted = manifest.executionGraph.every((n) => n.status === 'COMPLETED');
+    if (this.currentJob && allCompleted) {
+      this.currentJob.status = 'COMPLETED';
+      this.currentJob.progressPercent = 100;
+      this.currentJob.completedAt = new Date().toISOString();
+      onProgressUpdate(this.currentJob);
+    }
+
+    return this.currentJob || ({} as ProductionJob);
+  }
+
   public cancel() {
     this.cancelRequested = true;
     this.isRunning = false;
+    this.isPaused = false;
   }
 }
 

@@ -61,7 +61,12 @@ export function evaluateShotQA(params: QAEvaluationParams): ShotQAResult {
       ? 'Apply "subtle_head" anchor smoothing or execute Graceful Degradation to Static Camera Pan.'
       : undefined,
     compositeStatus: 'PASS',
-    overallStatus: isSlightDrift ? 'WARNING' : 'PASS',
+    overallStatus:
+      (identityStatus as string) === 'FAIL' || (motionStatus as string) === 'FAIL'
+        ? 'FAIL'
+        : identityStatus === 'WARNING' || motionStatus === 'WARNING'
+        ? 'WARNING'
+        : 'PASS',
   };
 }
 

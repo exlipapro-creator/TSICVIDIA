@@ -9,6 +9,9 @@ import {
   Zap,
   Search,
   ExternalLink,
+  Copy,
+  Info,
+  GitBranch,
 } from 'lucide-react';
 import { Asset, Universe } from '../../types';
 
@@ -19,8 +22,25 @@ interface AssetLibraryViewProps {
 export const AssetLibraryView: React.FC<AssetLibraryViewProps> = ({ universe }) => {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [copiedHash, setCopiedHash] = useState<string | null>(null);
 
   const mockAssets: Asset[] = [
+    {
+      id: 'ast_master_render_01',
+      hash: 'sha256:ee812974a91b28c894e772f912c9381b_master_ep01',
+      type: 'video',
+      name: 'Episode 01 — Master Render (1080x1920 30FPS H.264)',
+      url: '',
+      sizeBytes: 18450100,
+      createdAt: new Date().toISOString(),
+      provider: 'TSICVIDIA-FFmpeg-Master-Pipeline',
+      lineage: {
+        characterId: 'char_milo',
+        characterVersion: 'v3.2',
+        promptHash: 'sha256:manifest_gym_ego_v3.2',
+      },
+    },
     {
       id: 'ast_img_milo_01',
       hash: 'sha256:88fa29e81b2c4d5e6f7a8b9c0d1e2f3a',
@@ -69,9 +89,15 @@ export const AssetLibraryView: React.FC<AssetLibraryViewProps> = ({ universe }) 
 
   const filtered = mockAssets.filter((a) => {
     if (filterType !== 'all' && a.type !== filterType) return false;
-    if (searchQuery && !a.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery && !a.name.toLowerCase().includes(searchQuery.toLowerCase()) && !a.hash.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
+
+  const handleCopyHash = (hash: string) => {
+    navigator.clipboard?.writeText(hash);
+    setCopiedHash(hash);
+    setTimeout(() => setCopiedHash(null), 2000);
+  };
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
@@ -97,7 +123,7 @@ export const AssetLibraryView: React.FC<AssetLibraryViewProps> = ({ universe }) 
         {/* Global Storage Metrics */}
         <div className="flex items-center gap-4 text-xs font-mono bg-[#121215] border border-zinc-800 px-4 py-2.5 rounded-2xl text-zinc-300">
           <div>
-            Cached: <span className="text-emerald-400 font-medium">5.67 MB</span>
+            Cached: <span className="text-emerald-400 font-medium">24.12 MB</span>
           </div>
           <div>
             Total Artifacts: <span className="text-white font-medium">{mockAssets.length}</span>
@@ -107,7 +133,7 @@ export const AssetLibraryView: React.FC<AssetLibraryViewProps> = ({ universe }) 
 
       {/* Filter and Search */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#121215] border border-zinc-800 rounded-2xl p-3 shadow-sm">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {['all', 'image', 'audio', 'video'].map((t) => (
             <button
               key={t}
@@ -127,7 +153,7 @@ export const AssetLibraryView: React.FC<AssetLibraryViewProps> = ({ universe }) 
           <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-2.5" />
           <input
             type="text"
-            placeholder="Search hash or name..."
+            placeholder="Search hash, name, version..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="bg-zinc-800/40 border border-zinc-700/60 text-xs text-white pl-9 pr-3.5 py-2 rounded-xl focus:outline-none focus:border-indigo-500 w-64"
@@ -136,11 +162,12 @@ export const AssetLibraryView: React.FC<AssetLibraryViewProps> = ({ universe }) 
       </div>
 
       {/* Assets Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {filtered.map((asset) => (
           <div
             key={asset.id}
-            className="bg-[#121215] border border-zinc-800 hover:border-zinc-700 rounded-[32px] p-5 transition-all space-y-3 font-mono text-xs shadow-xl"
+            onClick={() => setSelectedAsset(asset)}
+            className="bg-[#121215] border border-zinc-800 hover:border-zinc-700 rounded-[32px] p-5 transition-all space-y-3 font-mono text-xs shadow-xl cursor-pointer"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -159,17 +186,79 @@ export const AssetLibraryView: React.FC<AssetLibraryViewProps> = ({ universe }) 
             </div>
 
             <div className="p-3 bg-zinc-800/20 rounded-2xl border border-zinc-800 space-y-1 text-[10px]">
-              <div className="text-zinc-500">SHA-256 HASH:</div>
+              <div className="flex items-center justify-between text-zinc-500">
+                <span>SHA-256 HASH:</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCopyHash(asset.hash);
+                  }}
+                  className="text-zinc-400 hover:text-white"
+                  title="Copy SHA-256"
+                >
+                  <Copy className="w-3 h-3" />
+                </button>
+              </div>
               <div className="text-emerald-400 break-all">{asset.hash}</div>
             </div>
 
             <div className="flex items-center justify-between text-[10px] text-zinc-500 border-t border-zinc-800/80 pt-2.5">
               <span>{asset.provider}</span>
-              <span className="text-zinc-300">{asset.lineage?.characterVersion}</span>
+              <span className="text-zinc-300">{asset.lineage?.characterVersion || 'Global'}</span>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Selected Asset Lineage Drawer / Modal */}
+      {selectedAsset && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-[#121215] border border-zinc-800 rounded-[32px] max-w-xl w-full p-6 space-y-4 font-mono text-xs shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <span className="text-white font-semibold uppercase flex items-center gap-2">
+                <GitBranch className="w-4 h-4 text-indigo-400" />
+                Asset Provenance & Lineage
+              </span>
+              <button
+                onClick={() => setSelectedAsset(null)}
+                className="text-zinc-500 hover:text-white text-base"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              <div>
+                <span className="text-zinc-500 text-[10px]">ASSET NAME:</span>
+                <div className="text-white font-sans text-sm">{selectedAsset.name}</div>
+              </div>
+              <div>
+                <span className="text-zinc-500 text-[10px]">CONTENT HASH:</span>
+                <div className="text-emerald-400 break-all">{selectedAsset.hash}</div>
+              </div>
+              <div>
+                <span className="text-zinc-500 text-[10px]">GENERATED BY PROVIDER:</span>
+                <div className="text-white">{selectedAsset.provider}</div>
+              </div>
+              <div>
+                <span className="text-zinc-500 text-[10px]">BOUND CHARACTER VERSION:</span>
+                <div className="text-indigo-400">{selectedAsset.lineage?.characterVersion || 'None (Canonical Global)'}</div>
+              </div>
+              <div>
+                <span className="text-zinc-500 text-[10px]">FILE SIZE:</span>
+                <div className="text-zinc-300">{(selectedAsset.sizeBytes / 1024 / 1024).toFixed(2)} MB ({selectedAsset.sizeBytes.toLocaleString()} bytes)</div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setSelectedAsset(null)}
+              className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-medium transition-colors"
+            >
+              Close Inspector
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

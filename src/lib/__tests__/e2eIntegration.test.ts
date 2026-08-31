@@ -244,9 +244,23 @@ describe('End-to-End Production Workflow Integration Suite', () => {
     const character = testUniverse.characters[0];
 
     // Standard baseline evaluation
-    const qaResult = evaluateShotQA(shot, character, {
-      identityThreshold: 0.90,
-      motionMaxJitter: 0.20,
+    const qaResult = evaluateShotQA({
+      shotId: shot.id,
+      characterName: character.name,
+      characterVersion: shot.characterVersion,
+      poseId: shot.poseId,
+      expressionId: shot.expressionId,
+      dialogue: shot.dialogue,
+      motionPreset: shot.motionPreset,
+      duration: shot.duration,
+      customQAProfile: {
+        identityThreshold: 0.90,
+        allowedPoseVariance: 0.20,
+        paletteDriftMax: 0.05,
+        landmarkDriftMax: 0.20,
+        lufsTarget: -14.0,
+        maxLipSyncDiscrepancyMs: 40,
+      },
     });
 
     expect(qaResult.identityScore).toBeGreaterThanOrEqual(0.90);
@@ -255,9 +269,23 @@ describe('End-to-End Production Workflow Integration Suite', () => {
     expect(qaResult.visualStatus).toBe('PASS');
 
     // Strict threshold trigger evaluation
-    const strictQAResult = evaluateShotQA(shot, character, {
-      identityThreshold: 0.99, // Unusually strict
-      motionMaxJitter: 0.01,
+    const strictQAResult = evaluateShotQA({
+      shotId: shot.id,
+      characterName: character.name,
+      characterVersion: shot.characterVersion,
+      poseId: shot.poseId,
+      expressionId: shot.expressionId,
+      dialogue: shot.dialogue,
+      motionPreset: shot.motionPreset,
+      duration: shot.duration,
+      customQAProfile: {
+        identityThreshold: 0.99, // Unusually strict
+        allowedPoseVariance: 0.01,
+        paletteDriftMax: 0.01,
+        landmarkDriftMax: 0.01,
+        lufsTarget: -14.0,
+        maxLipSyncDiscrepancyMs: 10,
+      },
     });
 
     expect(strictQAResult.overallStatus).not.toBe('PASS');
